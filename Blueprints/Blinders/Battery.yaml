@@ -1,0 +1,35 @@
+blueprint:
+  name: Blinder Battery Monitor
+  description: Get a notification when a blinder battery is low.
+  domain: automation
+  input:
+    blinder_device:
+      name: Blinder
+      selector:
+        entity:
+          domain: cover
+          device_class: shade
+    threshold:
+      name: Battery Threshold (%)
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 50
+    notify_device:
+      name: Device to notify
+      selector:
+        device:
+          integration: mobile_app
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input blinder_device
+    attribute: battery_level
+    below: !input threshold
+
+action:
+  - domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    message: "The battery on {{ state_attr(blinder_device, 'friendly_name') }} is at {{ state_attr(blinder_device, 'battery_level') }}%!"
