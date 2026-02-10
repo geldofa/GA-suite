@@ -1,0 +1,129 @@
+blueprint:
+  name: Blinder Pro - Sun, Light & Override
+  description: Sun-based control with lux smoothing and manual override protection.
+  domain: automation
+  input:
+    blinder_device:
+      name: Blinder
+      selector:
+        entity:
+          domain: cover
+    light_sensor:
+      name: Light Sensor
+      default: []
+      selector:
+        entity:
+          device_class: illuminance
+    sunrise_offset:
+      name: Sunrise Offset (Minutes)
+      default: 0
+      selector:
+        number:
+          min: -300
+          max: 300
+    sunset_offset:
+      name: Sunset Offset (Minutes)
+      default: 0
+      selector:
+        number:
+          min: -300
+          max: 300
+    lux_threshold:
+      name: Brightness Threshold
+      default: 1000
+      selector:
+        number:
+          min: 0
+          max: 10000
+    lux_duration:
+      name: Lux Smoothing (Duration)
+      description: How long the light must stay above/below threshold before moving.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: minutes
+    brightness_position:
+      name: Partial Closed Position (%)
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+
+mode: restart
+
+trigger:
+  - platform: sun
+    event: sunrise
+    offset: !input sunrise_offset
+    id: "open"
+  - platform: sun
+    event: sunset
+    offset: !input sunset_offset
+    id: "close"
+  - platform: numeric_state
+    entity_id: !input light_sensor
+    above: !input lux_threshold
+    for:
+      minutes: !input lux_duration
+    id: "brightness_high"
+  - platform: numeric_state
+    entity_id: !input light_sensor
+    below: !input lux_threshold
+    for:
+      minutes: !input lux_duration
+    id: "brightness_low"
+
+action:
+  - choose:
+      # SUNRISE: Always works (Resets the day)
+      - conditions:
+          - condition: trigger
+            id: "open"
+        sequence:
+          - service: cover.open_cover
+            target:
+              entity_id: !input blinder_device
+
+      # SUNSET: Always works
+      - conditions:
+          - condition: trigger
+            id: "close"
+        sequence:
+          - service: cover.close_cover
+            target:
+              entity_id: !input blinder_device
+
+      # LIGHT SENSOR HIGH: Only if currently fully open (Manual Override Check)
+      - conditions:
+          - condition: trigger
+            id: "brightness_high"
+          - condition: sun
+            after: sunrise
+            before: sunset
+          - condition: state
+            entity_id: !input blinder_device
+            attribute: current_position
+            state: 100 # Only moves if you haven't manually adjusted it away from 'Open'
+        sequence:
+          - service: cover.set_cover_position
+            target:
+              entity_id: !input blinder_device
+            data:
+              position: !input brightness_position
+
+      # LIGHT SENSOR LOW: Only if currently at the "Bright Position" (Manual Override Check)
+      - conditions:
+          - condition: trigger
+            id: "brightness_low"
+          - condition: sun
+            after: sunrise
+            before: sunset
+          - condition: template
+            value_template: "{{ state_attr(blinder_device, 'current_position') | int == brightness_position | int }}"
+        sequence:
+          - service: cover.open_cover
+            target:
+              entity_id: !input blinder_device
